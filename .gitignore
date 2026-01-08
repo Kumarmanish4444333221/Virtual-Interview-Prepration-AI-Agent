@@ -6,3 +6,4 @@ chainlit.md
 *.pdf
 *.mp3
 *.txt
+*.pyc

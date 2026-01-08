@@ -1,9 +1,10 @@
 """
-Autonomous Recruitment & Interview Agent
+Virtual Interview Preparation AI Agent
 Main Chainlit application entry point
 """
 import os
 import tempfile
+import asyncio
 from dotenv import load_dotenv
 import chainlit as cl
 from modules.pdf_processor import extract_text, validate_pdf
@@ -18,6 +19,120 @@ load_dotenv()
 if not os.getenv("OPENAI_API_KEY"):
     raise ValueError("OPENAI_API_KEY not found in environment variables. Please create a .env file with your API key.")
 
+# Company presets with interview styles
+COMPANY_PRESETS = {
+    "Google": {
+        "style": "Problem-solving, algorithms, system design, STAR behavioral",
+        "culture": "Innovation, collaboration, data-driven decisions",
+        "emoji": "🔍"
+    },
+    "Amazon": {
+        "style": "Leadership Principles, behavioral STAR, system design",
+        "culture": "Customer obsession, ownership, bias for action",
+        "emoji": "📦"
+    },
+    "Microsoft": {
+        "style": "Technical depth, growth mindset, problem-solving",
+        "culture": "Growth mindset, diversity, innovation",
+        "emoji": "🪟"
+    },
+    "Meta": {
+        "style": "Move fast, system design at scale, impact focus",
+        "culture": "Move fast, be bold, focus on impact",
+        "emoji": "👤"
+    },
+    "Apple": {
+        "style": "Design thinking, attention to detail, excellence",
+        "culture": "Innovation, quality, user experience",
+        "emoji": "🍎"
+    },
+    "Netflix": {
+        "style": "Culture fit, high performance, freedom & responsibility",
+        "culture": "Freedom and responsibility, high performance",
+        "emoji": "🎬"
+    },
+    "Startup": {
+        "style": "Versatility, adaptability, full-stack thinking",
+        "culture": "Fast-paced, wear multiple hats, growth",
+        "emoji": "🚀"
+    },
+    "Other Company": {
+        "style": "Standard technical interview with behavioral components",
+        "culture": "Professional environment with growth opportunities",
+        "emoji": "🏢"
+    }
+}
+
+EXPERIENCE_LEVELS = {
+    "Fresher (0-1 years)": {
+        "level": "entry",
+        "focus": "Fundamentals, learning ability, projects",
+        "question_difficulty": "Basic to intermediate",
+        "emoji": "🌱"
+    },
+    "Junior (1-3 years)": {
+        "level": "junior",
+        "focus": "Practical experience, code quality, teamwork",
+        "question_difficulty": "Intermediate",
+        "emoji": "📗"
+    },
+    "Mid-Level (3-5 years)": {
+        "level": "mid",
+        "focus": "System design, leadership potential",
+        "question_difficulty": "Intermediate to advanced",
+        "emoji": "📘"
+    },
+    "Senior (5-8 years)": {
+        "level": "senior",
+        "focus": "Architecture, technical leadership",
+        "question_difficulty": "Advanced",
+        "emoji": "📙"
+    },
+    "Lead/Staff (8+ years)": {
+        "level": "lead",
+        "focus": "System architecture, team leadership",
+        "question_difficulty": "Expert level",
+        "emoji": "📕"
+    }
+}
+
+ROLE_CATEGORIES = {
+    "Engineering": [
+        "Software Engineer",
+        "Frontend Developer", 
+        "Backend Developer",
+        "Full Stack Developer",
+        "Mobile Developer",
+        "DevOps Engineer",
+        "Cloud Engineer",
+        "QA Engineer",
+        "Security Engineer"
+    ],
+    "Data & AI": [
+        "Data Scientist",
+        "Data Engineer", 
+        "ML Engineer",
+        "Data Analyst",
+        "AI Engineer"
+    ],
+    "Specialized": [
+        "Python Developer",
+        "Java Developer",
+        "JavaScript Developer",
+        "React Developer",
+        "Node.js Developer",
+        "iOS Developer",
+        "Android Developer",
+        "Golang Developer"
+    ],
+    "Management": [
+        "Engineering Manager",
+        "Tech Lead",
+        "Product Manager",
+        "Scrum Master"
+    ]
+}
+
 
 @cl.on_audio_chunk
 async def on_audio_chunk(chunk):
@@ -25,7 +140,11 @@ async def on_audio_chunk(chunk):
     Handle incoming audio chunks from user voice input.
     Accumulates audio data for later transcription.
     """
+    # Stop any currently playing audio when user starts speaking
     if chunk.isStart:
+        # Signal to stop current audio playback
+        cl.user_session.set("stop_audio", True)
+        
         # Initialize a buffer for audio chunks
         buffer = cl.user_session.get("audio_buffer")
         if buffer is None:
@@ -53,11 +172,17 @@ async def on_audio_end(elements):
     audio_mime_type = cl.user_session.get("audio_mime_type", "audio/webm")
     
     if not audio_buffer:
-        await cl.Message(content="⚠️ No audio data received. Please try again.").send()
+        await cl.Message(content="⚠️ No audio detected. Please try again.").send()
         return
     
     # Combine all chunks into a single audio file
     audio_data = b"".join(audio_buffer)
+    
+    # Check if audio data is too small (likely empty recording)
+    if len(audio_data) < 1000:
+        await cl.Message(content="⚠️ Recording too short. Please speak for longer.").send()
+        cl.user_session.set("audio_buffer", None)
+        return
     
     # Determine file extension based on mime type
     ext = ".webm"
@@ -77,23 +202,25 @@ async def on_audio_end(elements):
             f.write(audio_data)
         
         # Transcribe the audio
-        async with cl.Step(name="🎤 Transcribing Audio", type="tool") as step:
-            transcribed_text = transcribe_audio(audio_file_path)
+        await cl.Message(content="🎤 *Processing your voice...*").send()
+        
+        transcribed_text = transcribe_audio(audio_file_path)
+        
+        if transcribed_text and transcribed_text.strip():
+            # Show what was transcribed
+            await cl.Message(content=f"💬 **You said:** {transcribed_text}").send()
             
-            if transcribed_text:
-                step.output = f"✓ Transcribed: {transcribed_text}"
-                
-                # Show what was transcribed
-                await cl.Message(content=f"🎤 *You said:* {transcribed_text}", author="User").send()
-                
-                # Process based on state
-                if state == "interview":
-                    await handle_interview_response(transcribed_text)
-                else:
-                    await cl.Message(content="⏳ Please upload a resume PDF file first to start the evaluation process.").send()
+            # Process based on state
+            if state == "interview":
+                await handle_interview_response(transcribed_text)
+            elif state == "awaiting_resume":
+                await cl.Message(content="📄 Please upload your resume (PDF) to start the interview.").send()
             else:
-                step.output = "✗ Failed to transcribe audio"
-                await cl.Message(content="⚠️ Could not transcribe audio. Please try again or type your response.").send()
+                await cl.Message(content="👆 Please complete the setup first using the buttons above.").send()
+        else:
+            await cl.Message(
+                content="⚠️ Couldn't understand the audio. Please speak clearly or type your response."
+            ).send()
     
     except Exception as e:
         print(f"Error processing audio: {str(e)}")
@@ -113,252 +240,605 @@ async def on_audio_end(elements):
 @cl.on_chat_start
 async def start():
     """
-    Initialize the chat session and display welcome message.
-    This is the entry point for autonomous agent behavior.
+    Initialize the chat session and display welcome message with interactive setup.
     """
-    # Initialize session variables for autonomous decision tracking
-    cl.user_session.set("state", "awaiting_resume")
+    # Initialize session variables
+    cl.user_session.set("state", "setup_company")
     cl.user_session.set("candidate_data", None)
     cl.user_session.set("interviewer", None)
     cl.user_session.set("interview_count", 0)
     cl.user_session.set("audio_buffer", None)
+    cl.user_session.set("stop_audio", False)
+    cl.user_session.set("interview_settings", {
+        "company": None,
+        "role": None,
+        "experience": None,
+        "num_questions": 7
+    })
     
-    # Welcome message with clear instructions
-    welcome_msg = """## 🎙️ Virtual Interview Preparation AI Agent.
+    # Welcome message
+    welcome_msg = """## 🎙️ Virtual Interview Preparation AI Agent
 
-Welcome! I'm your autonomous AI recruiter. 
+Welcome! I'm your AI interview coach. I'll help you prepare for interviews at top tech companies.
 
-**How it works:**
-1. 📄 Upload a resume (PDF format)
-2. 🤖 I'll autonomously analyze the candidate
-3. ✅ If qualified (score ≥ 75%), I'll conduct a voice interview
-4. ❌ If not qualified, I'll provide feedback
+### ✨ What I can do:
+- 🎯 **Company-specific interviews** - Practice for Google, Amazon, Microsoft & more
+- 🎤 **Voice & text responses** - Answer naturally using voice or keyboard  
+- 📊 **Detailed feedback** - Get actionable insights to improve
 
-Please **upload a resume** to begin the recruitment process.
-"""
+---
+
+### Let's set up your practice interview!
+
+**Step 1 of 4:** Which company are you preparing for?"""
     
     await cl.Message(content=welcome_msg).send()
+    
+    # Show company selection buttons
+    await show_company_selection()
+
+
+async def show_company_selection():
+    """Display company selection with action buttons."""
+    actions = []
+    for company, info in COMPANY_PRESETS.items():
+        actions.append(
+            cl.Action(
+                name="select_company",
+                payload={"company": company},
+                label=f"{info['emoji']} {company}"
+            )
+        )
+    
+    await cl.Message(
+        content="👇 **Select your target company:**",
+        actions=actions
+    ).send()
+
+
+async def show_experience_selection():
+    """Display experience level selection with action buttons."""
+    actions = []
+    for level, info in EXPERIENCE_LEVELS.items():
+        actions.append(
+            cl.Action(
+                name="select_experience",
+                payload={"experience": level},
+                label=f"{info['emoji']} {level}"
+            )
+        )
+    
+    await cl.Message(
+        content="👇 **Select your experience level:**",
+        actions=actions
+    ).send()
+
+
+async def show_role_category_selection():
+    """Display role category selection."""
+    actions = []
+    for category in ROLE_CATEGORIES.keys():
+        emoji = "💻" if category == "Engineering" else "📊" if category == "Data & AI" else "🔧" if category == "Specialized" else "👔"
+        actions.append(
+            cl.Action(
+                name="select_role_category",
+                payload={"category": category},
+                label=f"{emoji} {category}"
+            )
+        )
+    
+    await cl.Message(
+        content="👇 **Select your role category:**",
+        actions=actions
+    ).send()
+
+
+async def show_role_selection(category: str):
+    """Display specific role selection based on category."""
+    roles = ROLE_CATEGORIES.get(category, ROLE_CATEGORIES["Engineering"])
+    actions = []
+    for role in roles:
+        actions.append(
+            cl.Action(
+                name="select_role",
+                payload={"role": role},
+                label=f"💼 {role}"
+            )
+        )
+    
+    await cl.Message(
+        content=f"👇 **Select your specific role in {category}:**",
+        actions=actions
+    ).send()
+
+
+async def show_question_count_selection():
+    """Display question count selection."""
+    options = [
+        ("5", "⚡ Quick (5 questions)"),
+        ("7", "📝 Standard (7 questions)"),
+        ("10", "📚 Thorough (10 questions)"),
+        ("12", "🎯 Comprehensive (12 questions)")
+    ]
+    
+    actions = []
+    for value, label in options:
+        actions.append(
+            cl.Action(
+                name="select_questions",
+                payload={"num_questions": value},
+                label=label
+            )
+        )
+    
+    await cl.Message(
+        content="👇 **How many questions would you like?**",
+        actions=actions
+    ).send()
+
+
+async def show_settings_summary():
+    """Display the final settings summary and prompt for resume upload."""
+    settings = cl.user_session.get("interview_settings")
+    company_info = COMPANY_PRESETS.get(settings["company"], COMPANY_PRESETS["Other Company"])
+    exp_info = EXPERIENCE_LEVELS.get(settings["experience"], EXPERIENCE_LEVELS["Mid-Level (3-5 years)"])
+    
+    summary = f"""## ✅ Interview Setup Complete!
+
+### Your Interview Configuration:
+
+| Setting | Value |
+|---------|-------|
+| 🏢 **Company** | {company_info['emoji']} {settings['company']} |
+| 💼 **Role** | {settings['role']} |
+| 📈 **Level** | {exp_info['emoji']} {settings['experience']} |
+| ❓ **Questions** | {settings['num_questions']} |
+
+### Company Interview Style:
+> *{company_info['style']}*
+
+### Focus Areas for {settings['experience']}:
+> *{exp_info['focus']}*
+
+---
+
+## 📄 Now upload your resume (PDF) to start!
+
+Simply drag & drop your resume or click the 📎 attachment button below."""
+
+    # Add a restart button
+    actions = [
+        cl.Action(
+            name="restart_setup",
+            payload={},
+            label="🔄 Change Settings"
+        )
+    ]
+    
+    await cl.Message(content=summary, actions=actions).send()
+    cl.user_session.set("state", "awaiting_resume")
+
+
+@cl.action_callback("select_company")
+async def on_company_select(action: cl.Action):
+    """Handle company selection."""
+    company = action.payload.get("company")
+    settings = cl.user_session.get("interview_settings")
+    settings["company"] = company
+    cl.user_session.set("interview_settings", settings)
+    
+    company_info = COMPANY_PRESETS.get(company, COMPANY_PRESETS["Other Company"])
+    
+    await cl.Message(
+        content=f"""✅ **Company Selected:** {company_info['emoji']} **{company}**
+
+*Interview style: {company_info['style']}*
+
+---
+
+**Step 2 of 4:** What's your experience level?"""
+    ).send()
+    
+    cl.user_session.set("state", "setup_experience")
+    await show_experience_selection()
+
+
+@cl.action_callback("select_experience")
+async def on_experience_select(action: cl.Action):
+    """Handle experience level selection."""
+    experience = action.payload.get("experience")
+    settings = cl.user_session.get("interview_settings")
+    settings["experience"] = experience
+    cl.user_session.set("interview_settings", settings)
+    
+    exp_info = EXPERIENCE_LEVELS.get(experience, EXPERIENCE_LEVELS["Mid-Level (3-5 years)"])
+    
+    await cl.Message(
+        content=f"""✅ **Experience Level:** {exp_info['emoji']} **{experience}**
+
+*Question difficulty: {exp_info['question_difficulty']}*
+
+---
+
+**Step 3 of 4:** What role are you applying for?"""
+    ).send()
+    
+    cl.user_session.set("state", "setup_role_category")
+    await show_role_category_selection()
+
+
+@cl.action_callback("select_role_category")
+async def on_role_category_select(action: cl.Action):
+    """Handle role category selection."""
+    category = action.payload.get("category")
+    cl.user_session.set("current_role_category", category)
+    
+    await cl.Message(content=f"📂 **Category:** {category}").send()
+    await show_role_selection(category)
+
+
+@cl.action_callback("select_role")
+async def on_role_select(action: cl.Action):
+    """Handle role selection."""
+    role = action.payload.get("role")
+    settings = cl.user_session.get("interview_settings")
+    settings["role"] = role
+    cl.user_session.set("interview_settings", settings)
+    
+    await cl.Message(
+        content=f"""✅ **Role Selected:** 💼 **{role}**
+
+---
+
+**Step 4 of 4:** How thorough should the interview be?"""
+    ).send()
+    
+    cl.user_session.set("state", "setup_questions")
+    await show_question_count_selection()
+
+
+@cl.action_callback("select_questions")
+async def on_questions_select(action: cl.Action):
+    """Handle question count selection."""
+    num_questions = int(action.payload.get("num_questions"))
+    settings = cl.user_session.get("interview_settings")
+    settings["num_questions"] = num_questions
+    cl.user_session.set("interview_settings", settings)
+    
+    await cl.Message(content=f"✅ **Questions:** {num_questions}").send()
+    await show_settings_summary()
+
+
+@cl.action_callback("restart_setup")
+async def on_restart_setup(action: cl.Action):
+    """Restart the setup process."""
+    cl.user_session.set("state", "setup_company")
+    cl.user_session.set("interview_settings", {
+        "company": None,
+        "role": None,
+        "experience": None,
+        "num_questions": 7
+    })
+    
+    await cl.Message(content="🔄 **Restarting setup...**\n\n**Step 1 of 4:** Which company are you preparing for?").send()
+    await show_company_selection()
+
+
+@cl.action_callback("start_new_interview")
+async def on_start_new(action: cl.Action):
+    """Start a completely new interview session."""
+    await start()
 
 
 @cl.on_message
 async def main(message: cl.Message):
     """
-    Handle incoming messages and demonstrate autonomous behavior.
+    Handle incoming messages from users.
     """
     state = cl.user_session.get("state")
     
+    # Stop any playing audio when user sends a message
+    cl.user_session.set("stop_audio", True)
+    
     # Check if resume was uploaded with the message
     if message.elements:
-        # Handle file uploads
         for element in message.elements:
             if hasattr(element, 'mime') and element.mime == "application/pdf":
+                # Check if setup is complete
+                settings = cl.user_session.get("interview_settings", {})
+                if not settings.get("company") or not settings.get("role") or not settings.get("experience"):
+                    await cl.Message(
+                        content="⚠️ Please complete the interview setup first by selecting company, role, and experience level."
+                    ).send()
+                    await show_company_selection()
+                    return
                 await handle_file_upload(message.elements)
                 return
     
-    # Handle audio messages in interview mode
+    # Handle text/audio messages in interview mode
     if state == "interview":
-        # Check for audio input
         user_input = message.content
         
-        # Process audio if present
-        if message.elements:
-            for element in message.elements:
-                if hasattr(element, 'mime') and 'audio' in element.mime:
-                    async with cl.Step(name="🎤 Transcribing Audio", type="tool") as step:
-                        transcribed_text = transcribe_chainlit_audio(element)
-                        if transcribed_text:
-                            user_input = transcribed_text
-                            step.output = f"✓ Transcribed: {transcribed_text}"
-                        else:
-                            step.output = "✗ Failed to transcribe audio"
-                            await cl.Message(content="⚠️ Could not transcribe audio. Please try again or type your response.").send()
-                            return
-        
         if not user_input or not user_input.strip():
-            await cl.Message(content="Please provide a response (voice or text).").send()
+            await cl.Message(content="💬 Please provide a response (voice or text).").send()
             return
         
         await handle_interview_response(user_input)
         return
     
+    # Handle messages during setup phases
+    if state and state.startswith("setup_"):
+        await cl.Message(
+            content="👆 Please use the buttons above to make your selection."
+        ).send()
+        return
+    
     if state == "awaiting_resume":
         await cl.Message(
-            content="⏳ Please upload a resume PDF file to start the evaluation process."
+            content="📄 Please upload your resume (PDF file) to start the interview.\n\nYou can drag & drop the file or click the 📎 button below."
         ).send()
     elif state == "rejected":
+        actions = [
+            cl.Action(name="restart_setup", payload={}, label="🔄 Try Different Settings"),
+            cl.Action(name="start_new_interview", payload={}, label="🆕 Start Over")
+        ]
         await cl.Message(
-            content="This candidate has been evaluated and did not meet requirements. Please upload a new resume to evaluate another candidate."
+            content="Your profile didn't meet the threshold for this configuration. You can try with different settings or upload a different resume.",
+            actions=actions
+        ).send()
+    elif state == "completed":
+        actions = [
+            cl.Action(name="start_new_interview", payload={}, label="🆕 Start New Interview")
+        ]
+        await cl.Message(
+            content="🎉 Your interview is complete! Click below to start a new practice session.",
+            actions=actions
         ).send()
     else:
         await cl.Message(
-            content="System in unknown state. Please refresh and try again."
+            content="Welcome! Please wait while I set up your interview session..."
         ).send()
+        await start()
 
 
 async def handle_interview_response(user_input: str):
     """
     Handle candidate responses during the interview.
-    Demonstrates autonomous conversation and decision-making.
     """
     interviewer = cl.user_session.get("interviewer")
     
     if not interviewer:
         await cl.Message(content="⚠️ Interview session not initialized. Please restart.").send()
+        actions = [cl.Action(name="start_new_interview", payload={}, label="🆕 Start New Interview")]
+        await cl.Message(content="Click below to start fresh:", actions=actions).send()
         return
     
-    # Generate interviewer's response
-    async with cl.Step(name="🤔 Generating Response", type="tool") as step:
-        interviewer_response = interviewer.generate_question(user_input)
-        step.output = f"✓ Generated response ({len(interviewer_response)} chars)"
+    # Reset audio stop flag
+    cl.user_session.set("stop_audio", False)
     
-    # Check if interview should conclude
+    # Store the user's response in conversation history first
+    interviewer.add_candidate_response(user_input)
+    
+    # Show progress indicator
+    progress = f"📊 Progress: Question {interviewer.responses_received} of {interviewer.max_questions} answered"
+    
+    # Check if interview should conclude AFTER receiving this response
     if interviewer.should_conclude_interview():
-        # Send final question/response
-        await send_voice_message(interviewer_response)
+        await cl.Message(content=f"{progress} ✅").send()
         
         # Generate and save summary
-        async with cl.Step(name="📝 Generating Interview Summary", type="tool") as step:
-            step.output = "Creating comprehensive interview report..."
+        async with cl.Step(name="📝 Generating Your Feedback Report", type="tool") as step:
+            step.output = "Analyzing your responses and creating personalized feedback..."
             summary = interviewer.generate_summary()
             
             # Save to file
             report_saved = interviewer.save_interview_report(summary)
             if report_saved:
-                step.output = "✓ Interview report saved to interview_report.txt"
+                step.output = "✓ Report generated and saved!"
             else:
-                step.output = "⚠️ Could not save report to file, but summary generated"
+                step.output = "✓ Report generated!"
+        
+        # Get interview settings for the final message
+        settings = cl.user_session.get("interview_settings", {})
+        company = settings.get("company", "Other Company")
+        company_info = COMPANY_PRESETS.get(company, COMPANY_PRESETS["Other Company"])
         
         # Send conclusion message
-        await cl.Message(
-            content=f"## 🎉 Interview Complete!\n\nThank you for your time. Here's your interview summary:\n\n{summary}\n\n---\n\n{'✓ A detailed report has been saved to `interview_report.txt`' if report_saved else ''}"
-        ).send()
+        conclusion = f"""# 🎉 Interview Complete!
+
+Thank you for completing this mock interview for **{company_info['emoji']} {company}**!
+
+---
+
+## 📊 Your Performance Report
+
+{summary}
+
+---
+
+{'📁 *A detailed report has been saved to `interview_report.txt`*' if report_saved else ''}
+
+### What's Next?
+- Review the feedback above carefully
+- Practice the areas marked for improvement
+- Try another interview with different settings!"""
+
+        actions = [
+            cl.Action(name="start_new_interview", payload={}, label="🆕 Start New Interview"),
+            cl.Action(name="restart_setup", payload={}, label="🔄 Try Different Company")
+        ]
+        
+        await cl.Message(content=conclusion, actions=actions).send()
         
         # Update state
         cl.user_session.set("state", "completed")
     else:
-        # Continue interview - send next question with voice
+        # Generate interviewer's response/next question
+        async with cl.Step(name="🤔 Preparing Next Question", type="tool") as step:
+            interviewer_response = interviewer.generate_question()
+            step.output = f"Question {interviewer.questions_asked} of {interviewer.max_questions}"
+        
+        # Show progress
+        remaining = interviewer.max_questions - interviewer.responses_received
+        await cl.Message(content=f"*{progress} | {remaining} remaining*").send()
+        
+        # Continue interview - send next question
         await send_voice_message(interviewer_response)
 
 
 async def send_voice_message(text: str):
     """
-    Send a message with both text and audio (TTS).
+    Send a message with text. Audio is generated but not displayed.
     
     Args:
         text: Message text to send
     """
     try:
-        # Generate audio
-        async with cl.Step(name="🔊 Generating Speech", type="tool") as step:
-            audio_path = text_to_speech(text)
-            if audio_path:
-                step.output = "✓ Audio generated"
-            else:
-                step.output = "⚠️ Audio generation failed, using text only"
+        # Reset stop flag
+        cl.user_session.set("stop_audio", False)
         
-        # Send message with audio element if available
-        if audio_path and os.path.exists(audio_path):
-            elements = [
-                cl.Audio(
-                    name="interviewer_audio",
-                    path=audio_path,
-                    display="inline",
-                    auto_play=True
-                )
-            ]   
-            await cl.Message(content=text, elements=elements).send()
-        else:
-            # Fallback to text only
-            await cl.Message(content=text).send()
+        # Send text message
+        await cl.Message(content=f"🎤 **Interviewer:**\n\n{text}").send()
+        
+        # Generate audio in background (optional - can be enabled for TTS)
+        # audio_path = text_to_speech(text)
             
     except Exception as e:
         print(f"Error sending voice message: {str(e)}")
-        # Fallback to text only
         await cl.Message(content=text).send()
 
 
 async def handle_file_upload(elements):
     """
     Handle file uploads and trigger autonomous evaluation.
-    This demonstrates autonomous behavior: Goal Understanding → Task Decomposition → Decision Making
     """
+    # Get interview settings
+    settings = cl.user_session.get("interview_settings", {})
+    interview_settings = {
+        "company": settings.get("company", "Other Company"),
+        "role": settings.get("role", "Software Engineer"),
+        "experience": settings.get("experience", "Mid-Level (3-5 years)"),
+        "num_questions": settings.get("num_questions", 7)
+    }
+    
     for element in elements:
         if isinstance(element, cl.File):
             # Only process PDF files
             if not element.name.lower().endswith('.pdf'):
                 await cl.Message(
-                    content="❌ Please upload a PDF file. Other file types are not supported."
+                    content="❌ **Invalid file format.** Please upload a PDF file."
                 ).send()
                 return
             
-            # Step 1: Reading Resume (Task Decomposition)
-            async with cl.Step(name="🧠 Reading Resume", type="tool") as step:
-                step.output = "Extracting text from uploaded PDF..."
-                
-                # Extract text from PDF
+            await cl.Message(content="📄 **Resume received!** Analyzing your profile...").send()
+            
+            # Step 1: Reading Resume
+            async with cl.Step(name="📖 Reading Resume", type="tool") as step:
+                step.output = "Extracting content from PDF..."
                 resume_text = extract_text(element.path)
                 
                 if not resume_text:
                     await cl.Message(
-                        content="❌ Failed to extract text from the PDF. Please ensure the file is a valid, readable PDF document."
+                        content="❌ **Could not read the PDF.** Please ensure it's a valid, text-based PDF (not scanned image)."
                     ).send()
                     return
                 
-                step.output = f"✓ Successfully extracted {len(resume_text)} characters from resume"
+                step.output = f"✓ Extracted {len(resume_text)} characters"
             
-            # Step 2: Analyzing Skills (Task Decomposition)
-            async with cl.Step(name="🤔 Analyzing Skills & Experience", type="tool") as step:
-                step.output = "Evaluating candidate qualifications using AI..."
+            # Step 2: Analyzing Profile
+            company_info = COMPANY_PRESETS.get(interview_settings['company'], COMPANY_PRESETS["Other Company"])
+            async with cl.Step(name="🔍 Analyzing Profile", type="tool") as step:
+                step.output = f"Evaluating fit for {interview_settings['role']} at {interview_settings['company']}..."
                 
-                # Evaluate candidate using LangChain and GPT-4o
-                evaluation_data = evaluate_candidate(resume_text)
+                evaluation_data = evaluate_candidate(
+                    resume_text, 
+                    job_description=interview_settings['role'],
+                    company=interview_settings['company'],
+                    experience_level=interview_settings['experience']
+                )
                 
                 if not evaluation_data:
                     await cl.Message(
-                        content="❌ Failed to evaluate the candidate. Please try again or check the resume format."
+                        content="❌ **Analysis failed.** Please try again or check your resume format."
                     ).send()
                     return
                 
-                # Store candidate data in session
                 cl.user_session.set("candidate_data", evaluation_data)
-                
-                step.output = f"✓ Evaluation complete: {evaluation_data.get('name', 'Unknown')} - Score: {evaluation_data.get('fit_score', 0)}/100"
+                step.output = f"✓ Profile analyzed: Score {evaluation_data.get('fit_score', 0)}/100"
             
-            # Step 3: Calculating Fit Score (Task Decomposition)
-            async with cl.Step(name="📊 Calculating Fit Score", type="tool") as step:
-                fit_score = evaluation_data.get('fit_score', 0)
-                step.output = f"Fit Score: {fit_score}/100"
-                
-                # Display evaluation summary
-                summary = format_evaluation_summary(evaluation_data)
-                await cl.Message(content=summary).send()
+            # Display evaluation summary
+            summary = format_evaluation_summary(evaluation_data, interview_settings)
+            await cl.Message(content=summary).send()
             
-            # Step 4: Autonomous Decision Making
-            async with cl.Step(name="🎯 Making Decision", type="tool") as step:
-                fit_score = evaluation_data.get('fit_score', 0)
-                
-                # AUTONOMOUS DECISION: Score >= 75 → Interview, else Reject
-                if fit_score >= 75:
-                    step.output = f"✓ Score {fit_score} >= 75: Proceeding to interview"
+            # Step 3: Decision
+            fit_score = evaluation_data.get('fit_score', 0)
+            threshold = 50  # Lower threshold for practice - everyone should be able to practice
+            
+            async with cl.Step(name="🎯 Preparing Interview", type="tool") as step:
+                if fit_score >= threshold:
+                    step.output = "✓ Ready to start interview!"
                     cl.user_session.set("state", "interview")
                     
                     # Initialize interview agent
-                    interviewer = InterviewAgent(evaluation_data)
+                    interviewer = InterviewAgent(
+                        candidate_data=evaluation_data,
+                        company=interview_settings['company'],
+                        experience_level=interview_settings['experience'],
+                        max_questions=interview_settings['num_questions']
+                    )
                     cl.user_session.set("interviewer", interviewer)
                     
-                    await cl.Message(
-                        content=f"✅ **Excellent match!** {evaluation_data.get('name', 'Candidate')} has scored {fit_score}/100.\n\n🎙️ **Starting Interview Mode...**\n\nI'll now conduct a voice interview. You can speak or type your responses."
-                    ).send()
+                    # Start message
+                    start_msg = f"""## 🎬 Let's Begin Your Mock Interview!
+
+**Candidate:** {evaluation_data.get('name', 'Candidate')}
+**Company:** {company_info['emoji']} {interview_settings['company']}
+**Role:** {interview_settings['role']}
+**Level:** {interview_settings['experience']}
+
+---
+
+### 📋 Interview Format:
+- {interview_settings['num_questions']} questions total
+- Mix of technical & behavioral questions
+- {company_info['style']}
+
+### 💡 Tips:
+- Take a moment to think before answering
+- Be specific with examples from your experience
+- You can respond via **voice 🎤** or **text ⌨️**
+
+---
+
+*Starting interview...*"""
                     
-                    # Start the interview with the first question
+                    await cl.Message(content=start_msg).send()
+                    
+                    # Generate and send first question
                     first_question = interviewer.generate_question()
                     await send_voice_message(first_question)
+                    
                 else:
-                    step.output = f"✗ Score {fit_score} < 75: Candidate does not meet requirements"
+                    step.output = "Profile needs improvement for this role"
                     cl.user_session.set("state", "rejected")
                     
+                    actions = [
+                        cl.Action(name="restart_setup", payload={}, label="🔄 Try Different Settings"),
+                        cl.Action(name="start_new_interview", payload={}, label="🆕 Start Over")
+                    ]
+                    
                     await cl.Message(
-                        content=f"❌ **Candidate does not meet requirements.**\n\n{evaluation_data.get('name', 'Candidate')} scored {fit_score}/100, which is below the threshold of 75.\n\n**Feedback:** While the candidate shows some potential, they do not currently meet the minimum requirements for this position. We recommend gaining more experience in the required technical skills."
+                        content=f"""### 📊 Profile Assessment
+
+Your current score of **{fit_score}/100** suggests some areas for improvement before interviewing for **{interview_settings['role']}** at **{interview_settings['company']}**.
+
+**Recommendations:**
+1. Focus on skills commonly required at {interview_settings['company']}
+2. Add relevant projects to your portfolio
+3. Consider trying a different experience level or role
+
+You can adjust settings and try again!""",
+                        actions=actions
                     ).send()
             
             return

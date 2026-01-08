@@ -1,23 +1,33 @@
-# 🎙️ Autonomous Recruitment & Interview Agent
+# 🎙️ Virtual Interview Preparation AI Agent
 
-An intelligent, autonomous AI-powered recruitment system that evaluates candidates and conducts voice interviews with minimal human intervention. Built for the DECTHON 2026 Hackathon.
+An intelligent AI-powered interview preparation system that helps candidates practice for interviews at top tech companies. Built for the DECTHON 2026 Hackathon.
 
 ## 🌟 Key Features
 
-### Autonomous Behaviors
-1. **Goal Understanding** - Automatically understands recruitment objectives from resume uploads
-2. **Task Decomposition** - Breaks down the process into clear steps (PDF parsing → evaluation → decision → interview → reporting)
-3. **Decision Making** - Autonomously decides to interview or reject candidates based on fit score (threshold: 75/100)
-4. **Tool Usage** - Intelligently uses Whisper STT, GPT-4o for evaluation/interview, and OpenAI TTS for voice
-5. **End-to-End Completion** - Generates comprehensive interview reports without human guidance
+### Company-Specific Interview Preparation
+- **Google** - Problem-solving, Algorithms, System Design, STAR behavioral questions
+- **Amazon** - Leadership Principles focused, Customer obsession, Ownership
+- **Microsoft** - Growth Mindset, Technical Depth, Collaboration
+- **Meta** - Move Fast, Scale Thinking, Impact Focus
+- **Apple** - Design Thinking, Attention to Detail, Quality Focus
+- **Netflix** - High Performance Culture, Freedom and Responsibility
+- **Startup** - Versatility, Adaptability, Full-Stack Thinking
+- **General** - Standard Technical Interview
+
+### Experience Level Matching
+- **Fresher (0-1 years)** - Basic concepts, Learning potential, Academic projects
+- **Junior (1-3 years)** - Practical experience, Code quality, Teamwork
+- **Mid-Level (3-5 years)** - System design basics, Leadership potential
+- **Senior (5-8 years)** - Architecture, Technical leadership, Strategy
+- **Lead/Staff (8+ years)** - System architecture, Organizational impact
 
 ### Technical Features
-- ✅ **Resume Analysis** - Extracts and analyzes candidate qualifications from PDF resumes
-- ✅ **AI-Powered Evaluation** - Uses GPT-4o to evaluate candidates and calculate fit scores
-- ✅ **Voice Interview** - Conducts natural conversational interviews with speech-to-text and text-to-speech
-- ✅ **Autonomous Decision Making** - Automatically progresses qualified candidates to interviews
-- ✅ **Interview Reports** - Generates and saves comprehensive interview summaries
-- ✅ **Real-time Reasoning Display** - Shows AI decision-making process using visual steps
+- ✅ **Resume Analysis** - AI-powered analysis of qualifications
+- ✅ **Dynamic Role Selection** - 20+ common tech roles supported
+- ✅ **Voice & Text Input** - Respond using voice or keyboard
+- ✅ **Customizable Interview Length** - 5 to 15 questions
+- ✅ **Detailed Feedback** - Company-specific improvement suggestions
+- ✅ **Interview Reports** - Comprehensive summaries saved to file
 
 ## 🛠️ Tech Stack
 
@@ -43,8 +53,8 @@ An intelligent, autonomous AI-powered recruitment system that evaluates candidat
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/Kumarmanish4444333221/Interview-Preparation-or-Recruitor-AI-Agent.git
-cd Interview-Preparation-or-Recruitor-AI-Agent
+git clone https://github.com/Kumarmanish4444333221/Virtual-Interview-Prepration-AI-Agent.git
+cd Virtual-Interview-Prepration-AI-Agent
 ```
 
 ### 2. Create Virtual Environment (Recommended)
@@ -90,14 +100,28 @@ The application will start and open in your default browser at `http://localhost
 
 ## 📖 How to Use
 
-### Step 1: Upload Resume
+### Step 1: Configure Interview Settings
 1. Open the application in your browser
-2. Upload a candidate's resume in PDF format
-3. The agent will automatically extract and analyze the resume
+2. Use the sidebar settings to select:
+   - **Target Company** (Google, Amazon, Microsoft, etc.)
+   - **Target Role** (Software Engineer, Data Scientist, etc.)
+   - **Experience Level** (Fresher to Lead/Staff)
+   - **Number of Questions** (5-15)
 
-### Step 2: Autonomous Evaluation
-The agent will autonomously:
-- Extract text from the PDF
+### Step 2: Upload Resume
+Upload your resume in PDF format. The AI will analyze your qualifications.
+
+### Step 3: Take the Interview
+- Answer questions using **voice** 🎤 or **text** ⌨️
+- Take your time to think before answering
+- Be specific with examples from your experience
+
+### Step 4: Get Feedback
+Receive comprehensive feedback including:
+- Technical competency rating
+- Communication skills assessment
+- Company culture fit analysis
+- Specific preparation tips for your target company
 - Analyze skills, experience, and qualifications
 - Calculate a fit score (0-100)
 - Make a decision:
