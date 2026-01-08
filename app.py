@@ -262,7 +262,7 @@ async def start():
     })
     
     # Welcome message
-    welcome_msg = """## 🎙️ Virtual Interview Preparation AI Agent
+    welcome_msg = """## 🤖 Virtual Interview Preparation AI Agent
 
 Welcome! I'm your AI interview coach. I'll help you prepare for interviews at top tech companies.
 
@@ -673,7 +673,15 @@ Thank you for completing this mock interview for **{company_info['emoji']} {comp
             cl.Action(name="restart_setup", payload={}, label="🔄 Try Different Company")
         ]
         
-        await cl.Message(content=conclusion, actions=actions).send()
+        # Create audio feedback message (shorter version for TTS)
+        audio_feedback = f"Congratulations! You have completed the mock interview for {company}. " \
+                        f"I have analyzed your responses and generated a detailed performance report. " \
+                        f"Please review the feedback on screen carefully. It includes your strengths, " \
+                        f"areas for improvement, and specific recommendations to help you succeed in your actual interview. " \
+                        f"Good luck with your preparation!"
+        
+        # Send conclusion with voice
+        await send_voice_message_with_content(audio_feedback, conclusion, actions)
         
         # Update state
         cl.user_session.set("state", "completed")
@@ -726,10 +734,48 @@ async def send_voice_message(text: str):
         await cl.Message(content=f"🎤 **Interviewer:**\n\n{text}").send()
 
 
+async def send_voice_message_with_content(audio_text: str, display_content: str, actions: list = None):
+    """
+    Send a message with custom display content and separate audio text.
+    Useful for feedback where we want detailed text but shorter audio.
+    
+    Args:
+        audio_text: Text to convert to speech (shorter version)
+        display_content: Full content to display in the message
+        actions: Optional list of action buttons
+    """
+    try:
+        # Reset stop flag
+        cl.user_session.set("stop_audio", False)
+        
+        # Generate audio for TTS
+        audio_path = text_to_speech(audio_text)
+        
+        if audio_path and os.path.exists(audio_path):
+            # Send message with auto-playing audio
+            audio_element = cl.Audio(
+                name="feedback_voice",
+                path=audio_path,
+                display="inline",
+                auto_play=True
+            )
+            await cl.Message(
+                content=display_content,
+                elements=[audio_element],
+                actions=actions
+            ).send()
+        else:
+            # Fallback to text only if audio generation fails
+            await cl.Message(content=display_content, actions=actions).send()
+            
+    except Exception as e:
+        print(f"Error sending voice message with content: {str(e)}")
+        await cl.Message(content=display_content, actions=actions).send()
+
+
 async def handle_file_upload(elements):
     """
-    Handle file uploads and trigger autonomous evaluation.
-    """
+    Handle file uploads and trigger autonomous evaluation."""
     # Get interview settings
     settings = cl.user_session.get("interview_settings", {})
     interview_settings = {
