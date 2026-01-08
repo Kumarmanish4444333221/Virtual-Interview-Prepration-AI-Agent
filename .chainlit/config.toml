@@ -38,25 +38,29 @@ auto_tag_thread = true
     max_size_mb = 10
 
 [features.audio]
-    # Enable audio recording
+    # Enable audio recording for voice input
     enabled = true
-    # Min duration in seconds
-    min_decibels = -45
-    # Max duration in seconds  
-    max_duration = 120
-    # Sample rate
+    # Minimum decibel level to detect speech
+    min_decibels = -50
+    # Max duration in seconds for voice recording
+    max_duration = 180
+    # Sample rate for audio
     sample_rate = 44100
-    # Audio chunk duration in ms
-    chunk_duration = 1000
-    # Initial silence duration in ms
-    initial_silence_timeout = 3000
+    # Audio chunk duration in milliseconds
+    chunk_duration = 500
+    # Silence timeout - how long to wait for speech to start (ms)
+    initial_silence_timeout = 5000
+    # Silence detection timeout - stop recording after this much silence (ms)
+    silence_timeout = 2000
+    # Enable auto-send after silence detection
+    auto_start = false
 
 [UI]
 # Name of the app and chatbot.
-name = "Voice Recruitment Agent"
+name = "AI Interview Coach"
 
 # Show the readme while the thread is empty.
-show_readme_as_default = true
+show_readme_as_default = false
 
 # Description of the app and chatbot. This is used for HTML tags.
 # description = ""

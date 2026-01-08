@@ -134,29 +134,34 @@ ROLE_CATEGORIES = {
 }
 
 
+@cl.on_audio_start
+async def on_audio_start():
+    """
+    Handle the start of audio recording.
+    Initialize the audio buffer.
+    """
+    cl.user_session.set("stop_audio", True)
+    cl.user_session.set("audio_buffer", [])
+    cl.user_session.set("audio_mime_type", "audio/webm")
+
+
 @cl.on_audio_chunk
 async def on_audio_chunk(chunk):
     """
     Handle incoming audio chunks from user voice input.
     Accumulates audio data for later transcription.
     """
-    # Stop any currently playing audio when user starts speaking
+    # Initialize buffer if this is the start
     if chunk.isStart:
-        # Signal to stop current audio playback
         cl.user_session.set("stop_audio", True)
-        
-        # Initialize a buffer for audio chunks
-        buffer = cl.user_session.get("audio_buffer")
-        if buffer is None:
-            buffer = []
-        buffer.clear()
-        cl.user_session.set("audio_buffer", buffer)
+        cl.user_session.set("audio_buffer", [])
         cl.user_session.set("audio_mime_type", chunk.mimeType)
     
     # Append chunk data to buffer
     buffer = cl.user_session.get("audio_buffer")
     if buffer is not None:
         buffer.append(chunk.data)
+        cl.user_session.set("audio_buffer", buffer)
 
 
 @cl.on_audio_end
@@ -688,7 +693,7 @@ Thank you for completing this mock interview for **{company_info['emoji']} {comp
 
 async def send_voice_message(text: str):
     """
-    Send a message with text. Audio is generated but not displayed.
+    Send a message with text and auto-playing audio for the AI interviewer.
     
     Args:
         text: Message text to send
@@ -697,15 +702,28 @@ async def send_voice_message(text: str):
         # Reset stop flag
         cl.user_session.set("stop_audio", False)
         
-        # Send text message
-        await cl.Message(content=f"🎤 **Interviewer:**\n\n{text}").send()
+        # Generate audio for TTS
+        audio_path = text_to_speech(text)
         
-        # Generate audio in background (optional - can be enabled for TTS)
-        # audio_path = text_to_speech(text)
+        if audio_path and os.path.exists(audio_path):
+            # Send message with auto-playing audio
+            audio_element = cl.Audio(
+                name="interviewer_voice",
+                path=audio_path,
+                display="inline",
+                auto_play=True
+            )
+            await cl.Message(
+                content=f"🎤 **Interviewer:**\n\n{text}",
+                elements=[audio_element]
+            ).send()
+        else:
+            # Fallback to text only if audio generation fails
+            await cl.Message(content=f"🎤 **Interviewer:**\n\n{text}").send()
             
     except Exception as e:
         print(f"Error sending voice message: {str(e)}")
-        await cl.Message(content=text).send()
+        await cl.Message(content=f"🎤 **Interviewer:**\n\n{text}").send()
 
 
 async def handle_file_upload(elements):
