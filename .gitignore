@@ -7,3 +7,4 @@ chainlit.md
 *.mp3
 *.txt
 *.pyc
+data/

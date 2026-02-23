@@ -11,6 +11,8 @@ from modules.pdf_processor import extract_text, validate_pdf
 from modules.evaluator import evaluate_candidate, format_evaluation_summary
 from modules.audio_handler import transcribe_chainlit_audio, text_to_speech, transcribe_audio
 from modules.interviewer import InterviewAgent
+from modules.auth import authenticate_user, register_user, user_exists
+from modules.history import save_interview, get_user_interviews, get_user_stats
 
 # Load environment variables
 load_dotenv()
@@ -18,6 +20,40 @@ load_dotenv()
 # Verify API key is available
 if not os.getenv("OPENAI_API_KEY"):
     raise ValueError("OPENAI_API_KEY not found in environment variables. Please create a .env file with your API key.")
+
+
+# ---------------------------------------------------------------------------
+# Authentication – Chainlit password auth callback
+# ---------------------------------------------------------------------------
+# The login form is shown automatically by Chainlit when this callback exists.
+# New users are registered on their first login attempt.
+# ---------------------------------------------------------------------------
+
+@cl.password_auth_callback
+async def auth_callback(username: str, password: str):
+    """Authenticate or auto-register a user."""
+    if not username or not password:
+        return None
+
+    if user_exists(username):
+        user_data = authenticate_user(username, password)
+        if user_data is None:
+            return None
+        return cl.User(
+            identifier=user_data["username"],
+            display_name=user_data["display_name"],
+            metadata={"created_at": user_data["created_at"]},
+        )
+
+    # First-time login → auto-register
+    registered = register_user(username, password)
+    if not registered:
+        return None
+    return cl.User(
+        identifier=username,
+        display_name=username,
+        metadata={"new_user": True},
+    )
 
 # Company presets with interview styles
 COMPANY_PRESETS = {
@@ -260,25 +296,49 @@ async def start():
         "experience": None,
         "num_questions": 7
     })
-    
-    # Welcome message
-    welcome_msg = """## 🤖 Virtual Interview Preparation AI Agent
 
-Welcome! I'm your AI interview coach. I'll help you prepare for interviews at top tech companies.
+    # Build personalised greeting
+    user = cl.user_session.get("user")
+    username = user.identifier if user else "Guest"
+    stats = get_user_stats(username)
+
+    stats_block = ""
+    if stats["total_interviews"] > 0:
+        stats_block = f"""
+### 📈 Your Dashboard
+| Stat | Value |
+|------|-------|
+| 🎯 **Total Interviews** | {stats['total_interviews']} |
+| 📊 **Average Fit Score** | {stats['avg_score']}/100 |
+| 🏆 **Best Fit Score** | {stats['best_score']}/100 |
+| 🏢 **Companies Practiced** | {stats['companies_practiced']} |
+
+"""
+
+    welcome_msg = f"""## 🤖 Virtual Interview Preparation AI Agent
+
+Welcome back, **{username}**! I'm your AI interview coach.
 
 ### ✨ What I can do:
 - 🎯 **Company-specific interviews** - Practice for Google, Amazon, Microsoft & more
 - 🎤 **Voice & text responses** - Answer naturally using voice or keyboard  
 - 📊 **Detailed feedback** - Get actionable insights to improve
-
+- 📜 **Interview history** - Track your progress over time
+{stats_block}
 ---
 
 ### Let's set up your practice interview!
 
 **Step 1 of 4:** Which company are you preparing for?"""
-    
-    await cl.Message(content=welcome_msg).send()
-    
+
+    actions = []
+    if stats["total_interviews"] > 0:
+        actions.append(
+            cl.Action(name="view_history", payload={}, label="📜 View Interview History")
+        )
+
+    await cl.Message(content=welcome_msg, actions=actions).send()
+
     # Show company selection buttons
     await show_company_selection()
 
@@ -535,6 +595,36 @@ async def on_start_new(action: cl.Action):
     await start()
 
 
+@cl.action_callback("view_history")
+async def on_view_history(action: cl.Action):
+    """Show the user's past interview sessions."""
+    user = cl.user_session.get("user")
+    username = user.identifier if user else "Guest"
+    interviews = get_user_interviews(username, limit=10)
+
+    if not interviews:
+        await cl.Message(content="📜 You haven't completed any interviews yet. Start one now!").send()
+        return
+
+    rows = ""
+    for iv in interviews:
+        date_str = iv["created_at"][:10]
+        rows += f"| {date_str} | {iv['company']} | {iv['role']} | {iv['experience_level']} | {iv['fit_score']}/100 | {iv['num_questions']} |\n"
+
+    history_msg = f"""## 📜 Your Interview History (last {len(interviews)})
+
+| Date | Company | Role | Level | Score | Questions |
+|------|---------|------|-------|-------|-----------|
+{rows}
+---
+*Start a new interview to keep improving!*"""
+
+    actions = [
+        cl.Action(name="start_new_interview", payload={}, label="🆕 Start New Interview")
+    ]
+    await cl.Message(content=history_msg, actions=actions).send()
+
+
 @cl.on_message
 async def main(message: cl.Message):
     """
@@ -593,10 +683,11 @@ async def main(message: cl.Message):
         ).send()
     elif state == "completed":
         actions = [
-            cl.Action(name="start_new_interview", payload={}, label="🆕 Start New Interview")
+            cl.Action(name="start_new_interview", payload={}, label="🆕 Start New Interview"),
+            cl.Action(name="view_history", payload={}, label="📜 View Interview History"),
         ]
         await cl.Message(
-            content="🎉 Your interview is complete! Click below to start a new practice session.",
+            content="🎉 Your interview is complete! Click below to start a new practice session or view your history.",
             actions=actions
         ).send()
     else:
@@ -682,7 +773,22 @@ Thank you for completing this mock interview for **{company_info['emoji']} {comp
         
         # Send conclusion with voice
         await send_voice_message_with_content(audio_feedback, conclusion, actions)
-        
+
+        # Persist the interview to history
+        user = cl.user_session.get("user")
+        username = user.identifier if user else "Guest"
+        candidate_data = cl.user_session.get("candidate_data") or {}
+        save_interview(
+            username=username,
+            company=company,
+            role=settings.get("role", "Software Engineer"),
+            experience_level=settings.get("experience", "Mid-Level (3-5 years)"),
+            fit_score=candidate_data.get("fit_score", 0),
+            num_questions=interviewer.max_questions,
+            summary=summary,
+            transcript=interviewer.conversation_history,
+        )
+
         # Update state
         cl.user_session.set("state", "completed")
     else:

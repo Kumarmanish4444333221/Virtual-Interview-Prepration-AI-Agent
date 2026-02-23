@@ -28,6 +28,9 @@ An intelligent AI-powered interview preparation system that helps candidates pra
 - ✅ **Customizable Interview Length** - 5 to 15 questions
 - ✅ **Detailed Feedback** - Company-specific improvement suggestions
 - ✅ **Interview Reports** - Comprehensive summaries saved to file
+- ✅ **User Authentication** - Login / sign-up with secure password hashing
+- ✅ **Interview History** - Track past interviews, scores, and progress over time
+- ✅ **Personal Dashboard** - View stats (total interviews, average score, best score)
 
 ## 🛠️ Tech Stack
 
@@ -38,6 +41,8 @@ An intelligent AI-powered interview preparation system that helps candidates pra
   - Whisper (speech-to-text)
   - OpenAI TTS (text-to-speech)
 - **PDF Processing**: pypdf
+- **Authentication**: bcrypt password hashing, Chainlit auth
+- **Data Storage**: SQLite (user accounts & interview history)
 - **Environment**: Python 3.8+, Windows compatible
 
 ## 📋 Prerequisites
@@ -85,9 +90,10 @@ pip install -r requirements.txt
    cp .env.example .env      # macOS/Linux
    ```
 
-2. Edit `.env` and add your OpenAI API key:
+2. Edit `.env` and add your keys:
    ```
    OPENAI_API_KEY=sk-your-api-key-here
+   CHAINLIT_AUTH_SECRET=any-random-secret-string
    ```
 
 ### 5. Run the Application
@@ -154,7 +160,13 @@ After completing the interview:
 │   ├── pdf_processor.py       # PDF text extraction
 │   ├── evaluator.py           # LangChain candidate evaluation
 │   ├── audio_handler.py       # Whisper STT & OpenAI TTS
-│   └── interviewer.py         # Interview logic & conversation
+│   ├── interviewer.py         # Interview logic & conversation
+│   ├── auth.py                # User authentication (login/signup)
+│   └── history.py             # Interview history persistence
+├── tests/
+│   ├── test_auth.py           # Auth module tests
+│   └── test_history.py        # History module tests
+├── data/                      # SQLite databases (auto-created, git-ignored)
 └── README.md                  # This file
 ```
 
@@ -229,8 +241,10 @@ Edit `modules/interviewer.py` to customize:
 
 ## 🔒 Security & Privacy
 
-- All API keys are stored in `.env` (git-ignored)
-- No candidate data is stored permanently (except interview reports)
+- All API keys and secrets are stored in `.env` (git-ignored)
+- User passwords are hashed with **bcrypt** before storage
+- Authentication tokens are signed with a configurable secret (`CHAINLIT_AUTH_SECRET`)
+- Interview history is stored locally in SQLite (inside `data/`, git-ignored)
 - Audio files are temporarily stored and can be cleared
 - Interview reports are saved locally and not shared
 
