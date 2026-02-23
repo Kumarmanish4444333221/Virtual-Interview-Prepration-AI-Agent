@@ -55,6 +55,15 @@ async def auth_callback(username: str, password: str):
         metadata={"new_user": True},
     )
 
+
+def _get_username() -> str:
+    """Return the authenticated user's identifier from the current session."""
+    user = cl.user_session.get("user")
+    if user is None:
+        raise RuntimeError("No authenticated user in session")
+    return user.identifier
+
+
 # Company presets with interview styles
 COMPANY_PRESETS = {
     "Google": {
@@ -298,8 +307,7 @@ async def start():
     })
 
     # Build personalised greeting
-    user = cl.user_session.get("user")
-    username = user.identifier if user else "Guest"
+    username = _get_username()
     stats = get_user_stats(username)
 
     stats_block = ""
@@ -598,8 +606,7 @@ async def on_start_new(action: cl.Action):
 @cl.action_callback("view_history")
 async def on_view_history(action: cl.Action):
     """Show the user's past interview sessions."""
-    user = cl.user_session.get("user")
-    username = user.identifier if user else "Guest"
+    username = _get_username()
     interviews = get_user_interviews(username, limit=10)
 
     if not interviews:
@@ -775,8 +782,7 @@ Thank you for completing this mock interview for **{company_info['emoji']} {comp
         await send_voice_message_with_content(audio_feedback, conclusion, actions)
 
         # Persist the interview to history
-        user = cl.user_session.get("user")
-        username = user.identifier if user else "Guest"
+        username = _get_username()
         candidate_data = cl.user_session.get("candidate_data") or {}
         save_interview(
             username=username,

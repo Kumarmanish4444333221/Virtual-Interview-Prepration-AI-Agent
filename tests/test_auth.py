@@ -5,15 +5,6 @@ import tempfile
 import unittest
 from unittest import mock
 
-# Patch DB paths before importing auth module
-_test_dir = tempfile.mkdtemp()
-_test_db_path = os.path.join(_test_dir, "test_users.db")
-
-with mock.patch("modules.auth.DB_DIR", _test_dir), \
-     mock.patch("modules.auth.DB_PATH", _test_db_path):
-    # Re-init DB with patched path (module-level init already ran with default path)
-    pass
-
 import modules.auth as auth_mod
 
 
